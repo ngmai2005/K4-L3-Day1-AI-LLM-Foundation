@@ -32,36 +32,52 @@ class TestStreamingChatbot(unittest.TestCase):
         self.assertTrue(callable(MOD.streaming_chatbot))
 
     @patch("builtins.input", side_effect=["quit"])
-    @patch("openai.OpenAI")
-    def test_exits_on_quit(self, MockOpenAI, mock_input):
-        """Chatbot phải thoát sạch khi người dùng gõ 'quit'."""
-        mock_client = MagicMock()
-        MockOpenAI.return_value = mock_client
-        try:
-            MOD.streaming_chatbot()
-        except StopIteration:
-            pass  # input() hết side_effect — chấp nhận được
+    @patch.object(MOD, "_get_gemini_client")
+    def test_exits_on_quit(self, mock_get_client, mock_input):
+        """Chatbot phải thoát sạch khi người dùng gõ quit."""
+        MOD.streaming_chatbot()
 
     @patch("builtins.input", side_effect=["Xin chào", "quit"])
-    @patch("openai.OpenAI")
-    def test_streams_one_turn_with_stream_true(self, MockOpenAI, mock_input):
-        """Một lượt chat phải gọi API với stream=True."""
-        mock_client = MagicMock()
-        MockOpenAI.return_value = mock_client
-        mock_client.chat.completions.create.return_value = _make_stream("Chào bạn!")
+    @patch.object(MOD, "_get_gemini_client")
+    def test_streams_one_turn_with_stream_true(
+        self,
+        mock_get_client,
+        mock_input,
+    ):
+        """Một lượt chat phải gọi Gemini streaming API."""
 
-        try:
-            MOD.streaming_chatbot()
-        except StopIteration:
-            pass
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        chunk1 = MagicMock()
+        chunk1.text = "Chào "
+
+        chunk2 = MagicMock()
+        chunk2.text = "bạn!"
+
+        chunk3 = MagicMock()
+        chunk3.text = None
+
+        mock_client.models.generate_content_stream.return_value = [
+            chunk1,
+            chunk2,
+            chunk3,
+        ]
+
+        MOD.streaming_chatbot()
 
         self.assertTrue(
-            mock_client.chat.completions.create.called,
-            "Phải gọi API khi người dùng nhập tin nhắn",
+            mock_client.models.generate_content_stream.called,
+            "Phải gọi Gemini API khi người dùng nhập tin nhắn",
         )
-        _, kwargs = mock_client.chat.completions.create.call_args
-        self.assertTrue(kwargs.get("stream", False), "Phải gọi API với stream=True")
 
+        _, kwargs = (
+            mock_client.models.generate_content_stream.call_args
+        )
+
+        self.assertIn("model", kwargs)
+        self.assertIn("contents", kwargs)
+        self.assertIn("config", kwargs)
 
 class TestRetryWithBackoff(unittest.TestCase):
 
